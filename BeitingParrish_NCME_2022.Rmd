@@ -1,0 +1,1028 @@
+---
+title: "A Usability Analysis of Available R Packages for Text Clustering Methods"
+author: "Maggie Beiting-Parish, Christopher Runyon"
+date: "NCME 2022"
+output: 
+  html_document:
+    toc: true
+    toc_float: true
+    toc_collapsed: true
+urlcolor: blue
+---
+
+
+# Setup
+
+```{r setup, eval = FALSE}
+
+knitr::opts_chunk$set(echo = TRUE)
+
+# Installing packages; only needs to be done the first time
+install.packages(c("BTM", "BullsEyeR", "dplyr", "doc2vec",
+                   "keyATM", "lda", "LDAShiny", "LDATS",
+                   "ldatuning", "LDAvis", "lsa", "LSAfun",
+                   "mallet", "maptpx", "parallel", "purrr",
+                   "qdap", "quanteda", "Rlda", "seededlda",
+                   "stm", "stmCorrViz", "stmgui", "stminsights",
+                   "textmineR", "tidylda", "tidytext", "tm", "tokenizers",
+                   "topicdoc", "topicmodels", "TopicScore", "uwot", "dbscan"))
+
+
+```
+
+## Reading in Data
+
+### Math data
+
+```{r}
+
+math_items <- read.csv("textclustering_math_items.csv")
+head(math_items, 5)
+
+```
+
+### Essay data
+
+```{r}
+
+essays <- read.csv("textclustering_essays.csv")
+head(essays, 5)
+# Removing the strings that start with the at sign
+essays$essay <- gsub("@\\w+ *", "", essays$essay)
+
+```
+
+## Preprocessing data
+
+Many of the packages require that the data be pre-process and formatted in to a <a href="https://en.wikipedia.org/wiki/Document-term_matrix" target="_blank">document-term matrix.</a>
+
+```{r, eval = FALSE}
+
+# Preprocessing
+suppressPackageStartupMessages(library(tm))
+
+# Function to transform the text into a document term matrix (DTM)
+# Many of the packages examined require a DTM to perform the
+# focal analysis.
+
+makeDTM <- function(text_column){
+  focal_text <- VectorSource(text_column)
+  focal_text <- VCorpus(focal_text)
+
+  # Need to clean the text; remove whitespace, punctionation, stopwords, etc.
+  
+  cleaned_text <- tm_map(focal_text, stripWhitespace)
+  cleaned_text <- tm_map(cleaned_text, removePunctuation)
+  cleaned_text <- tm_map(cleaned_text, content_transformer(tolower))
+  cleaned_text <- tm_map(cleaned_text, removeWords, c(stopwords("en")))
+  cleaned_DTM <- DocumentTermMatrix(cleaned_text)
+  return(cleaned_DTM)
+}
+
+
+essay_DTM <- makeDTM(essays$essay)
+# object.size(essay_DTM) # 6897024 bytes (approx 6.9 MB)
+save(essay_DTM, file = "essay_DTM.Rdata")
+
+math_items_DTM <- makeDTM(math_items$completeq)
+# object.size(math_items_DTM) # 2280344 bytes (approx 2.3 MB)
+save(math_items_DTM, file = "math_items_DTM.Rdata")
+
+```
+```{r load DTM, echo=FALSE}
+load("essay_DTM.Rdata")
+load("math_items_DTM.Rdata")
+```
+
+# ldatuning
+
+```{r, eval = FALSE}
+
+suppressPackageStartupMessages(library(ldatuning))
+
+system.time(
+math_tune <- FindTopicsNumber(math_items_DTM,
+                              topics = seq(from = 2, to = 20, by = 1),
+                              metrics = c("Griffiths2004", "CaoJuan2009", 
+                                          "Arun2010", "Deveaud2014"),
+                              method = "Gibbs",
+                              control = list(seed = 420),
+                              mc.cores = (parallel::detectCores() / 2),
+                              verbose = TRUE))
+# user  system elapsed 
+# 4.04    1.55  183.61 
+save(math_tune, file = "math_tune.Rdata")
+
+system.time(
+essay_tune <- FindTopicsNumber(essay_DTM,
+                               topics = seq(from = 2, to = 20, by = 1),
+                               metrics = c("Griffiths2004", "CaoJuan2009", 
+                                           "Arun2010", "Deveaud2014"),
+                               method = "Gibbs",
+                               control = list(seed = 420),
+                               mc.cores = (parallel::detectCores() / 2),
+                               verbose = TRUE))
+# user  system elapsed 
+# 5.24    1.33  534.12
+save(essay_tune, file = "essay_tune.Rdata")
+```
+```{r, echo = FALSE}
+suppressPackageStartupMessages(library(ldatuning))
+load("math_tune.Rdata")
+load("essay_tune.Rdata")
+```
+```{r, warning = FALSE, message = FALSE}
+# Number of Topics in Math Items;
+# indicates 8 topics are appropriate
+FindTopicsNumber_plot(math_tune)
+```
+```{r, warning = FALSE, message = FALSE}
+# Number of Topics in Essay Items;
+# indicates 14 topics are appropriate
+FindTopicsNumber_plot(essay_tune)
+```
+```{r, echo = FALSE}
+rm(math_tune)
+rm(essay_tune)
+```
+
+# BTM
+
+```{r, eval = FALSE}
+
+suppressPackageStartupMessages(library(BTM))
+
+# needs data in a tokenized data frame with one row per token with an id column
+
+suppressPackageStartupMessages(library(tokenizers))
+
+# math items
+BTM_math_tokendf <- c()
+
+for(i in 1:nrow(math_items)){
+  
+  text_vec <- unlist(tokenize_words(math_items$completeq[i]))
+  text_vec <- tm::removeWords(text_vec, stopwords("english"))
+  text_vec <- text_vec[text_vec != ""]
+  rdf <- data.frame(
+    id = math_items$id[i],
+    word_token = text_vec
+  )
+  BTM_math_tokendf <- rbind(BTM_math_tokendf, rdf)
+  
+}
+
+save(BTM_math_tokendf, file = "BTM_math_tokendf.Rdata")
+
+# essay items
+BTM_essay_tokendf <- c()
+
+for(i in 1:nrow(essays)){
+  
+  text_vec <- unlist(tokenize_words(essays$essay[i]))
+  text_vec <- tm::removeWords(text_vec, stopwords("english"))
+  text_vec <- text_vec[text_vec != ""]
+  rdf <- data.frame(
+    id = essays$essay_id[i],
+    word_token = text_vec
+  )
+  BTM_essay_tokendf <- rbind(BTM_essay_tokendf, rdf)
+  
+}
+
+save(BTM_essay_tokendf, file = "BTM_essay_tokendf.Rdata")
+
+## Back to the BTM package
+## Running the main analysis and saving those objects
+
+system.time(math_BTM <- BTM(BTM_math_tokendf, k = 8))
+#   user  system elapsed 
+# 508.82    0.10  512.90 
+object.size(math_BTM) # 1372096 bytes; ~1.4 MB
+save(math_BTM, file = "math_BTM.Rdata")
+
+system.time(essay_BTM <- BTM(BTM_essay_tokendf, k = 14))
+#    user  system elapsed 
+# 1953.98    0.38 1962.97  
+object.size(essay_BTM) # 3823432 bytes; ~3.8 MB
+save(essay_BTM, file = "essay_BTM.Rdata")
+  
+```
+
+# BullsEyeR
+
+```{r, eval = FALSE}
+
+suppressPackageStartupMessages(library(BullsEyeR))
+
+system.time(math_items_bullseye <- BullsEye(math_items$completeq, tno = 8))
+   # user  system elapsed 
+   # 6.89    0.06    6.97 
+object.size(math_items_bullseye) # 70584 bytes; ~0.07 MB
+save(math_items_bullseye, file = "math_items_bullseye.Rdata")
+
+system.time(essay_bullseye <- BullsEye(essays$essay, tno = 14))
+  #  user  system elapsed 
+  # 59.05    0.08   59.25 
+object.size(essay_bullseye) # 496632 bytes; ~0.5 MB
+save(essay_bullseye, file = "essay_bullseye.Rdata")
+
+```
+```{r, echo = FALSE}
+load("math_items_bullseye.Rdata")
+load("essay_bullseye.Rdata")
+```
+```{r, echo = FALSE}
+rm(math_items_bullseye)
+rm(essay_bullseye)
+```
+
+# doc2vec
+
+```{r, eval = FALSE}
+
+suppressPackageStartupMessages(library(doc2vec))
+
+# needs either an object returned by paragraph2vec or a data.frame with columns
+# ‘doc_id‘and ‘text‘ storing document ids and texts as character vectors or 
+# a matrix with document embeddings to cluster or a list with elements docs 
+# and words containing document embeddings to cluster and word embeddings for 
+# deriving topic summaries
+
+math2vec <- subset(math_items, select = c(id, completeq))
+names(math2vec) <- c("doc_id", "text")
+
+essay2vec <- subset(essays, select = c(essay_id, essay))
+names(essay2vec) <- c("doc_id", "text")
+
+# Main Analysis
+# requires the following packages
+suppressPackageStartupMessages(library(uwot))
+suppressPackageStartupMessages(library(dbscan))
+
+system.time(math_doc2vec <- top2vec(math2vec))
+  #  user  system elapsed 
+  # 32.72    0.44   32.67 
+object.size(math_doc2vec) # 13322728 bytes; ~13.3 MB
+save(math_doc2vec, file = "math_doc2vec.Rdata")
+
+system.time(essay_doc2vec <- top2vec(essay2vec))
+  #  user  system elapsed 
+  # 73.93    0.19   74.34 
+object.size(essay_doc2vec) # 15499856 bytes; ~15.5 MB
+save(essay_doc2vec, file = "essay_doc2vec.Rdata")
+
+```
+```{r, echo = FALSE}
+load("math_doc2vec.Rdata")
+load("essay_doc2vec.Rdata")
+```
+```{r, echo = FALSE}
+rm(math_doc2vec)
+rm(essay_doc2vec)
+```
+
+# keyATM
+
+```{r}
+
+suppressPackageStartupMessages(library(keyATM))
+suppressPackageStartupMessages(library(quanteda))
+
+# Requires keywords to be used in analysis;
+# Will use bag-of-words from the qdap package to
+# identify common words just for demonstration
+
+# unusual for the math items; omitting from demonstration
+
+suppressPackageStartupMessages(library(qdap))
+
+
+freq_terms(tm::removeWords(essays$essay, stopwords("english")))
+# more pre-processing would be beneficial
+
+essay_keywords <- list(
+  machine = c("computer", "computers"),
+  paper = c("book", "books"),
+  place = "building"
+)
+
+essay_dfm <- quanteda::dfm(essays$essay)
+essay_docs <- keyATM_read(essay_dfm)
+
+system.time(
+essay_keyATM <- keyATM(docs = essay_docs,
+                       model = "base",
+                       no_keyword_topics = 14,
+                       keywords = essay_keywords))
+ #   user  system elapsed 
+ # 478.83    0.43  484.45 
+object.size(essay_keyATM) # 6823304 bytes; ~6.8 MB
+save(essay_keyATM, file = "essay_keyATM.Rdata")
+
+```
+
+# lda
+
+```{r}
+
+suppressPackageStartupMessages(library(lda))
+
+# Need to first create a document matrix in a different form
+# for the lda function to work
+
+# Math Items
+math_items_lex <- lexicalize(math_items$completeq, lower = TRUE)
+
+system.time(
+math_lda <- lda.collapsed.gibbs.sampler(math_items_lex$documents,
+                                        K = 8,
+                                        math_items_lex$vocab,
+                                        num.iterations = 25,
+                                        alpha = 0.1,
+                                        eta = 0.1,
+                                        compute.log.likelihood = TRUE))
+# user  system elapsed 
+# 1.57    0.00    1.58
+object.size(math_lda) # 3674672 bytes; ~3.7 MB
+save(math_lda, file = "math_lda.Rdata")
+
+# Essays
+essay_lex <- lexicalize(essays$essay, lower = TRUE)
+
+system.time(
+essay_lda <- lda.collapsed.gibbs.sampler(essay_lex$documents,
+                                         K = 8,
+                                         essay_lex$vocab,
+                                         num.iterations = 25,
+                                         alpha = 0.1,
+                                         eta = 0.1,
+                                         compute.log.likelihood = TRUE))
+# user  system elapsed 
+#   4.01    0.00    4.04 
+object.size(essay_lda) # 7872808 bytes; ~7.9 MB
+save(essay_lda, file = "essay_lda.Rdata")
+
+
+
+
+
+
+
+
+
+
+
+
+## Get the top words in the cluster
+top.words <- top.topic.words(result$topics, 5, by.score=TRUE)
+View(top.words)
+
+## Number of documents to display
+N <- 10
+
+topic.proportions <- t(result$document_sums) / colSums(result$document_sums)
+topic.proportions <-
+  topic.proportions[sample(1:dim(topic.proportions)[1], N),]
+topic.proportions[is.na(topic.proportions)] <-  1 / K
+
+colnames(topic.proportions) <- apply(top.words, 2, paste, collapse=" ")
+
+topic.proportions.df <- melt(cbind(data.frame(topic.proportions),
+                                   document=factor(1:N)),
+                             variable.name="topic",
+                             id.vars = "document")  
+
+ggplot(topic.proportions.df, aes(x=topic, y=value, fill=document), ylab="proportion") +
+  geom_bar(stat="identity") +
+  theme(axis.text.x = element_text(angle=90, hjust=1)) +
+  coord_flip() +
+  facet_wrap(~ document, ncol=5)
+
+
+```
+
+# LDAShiny
+
+```{r}
+
+suppressPackageStartupMessages(library(LDAShiny))
+
+# LDAShiny::runLDAShiny()
+
+```
+
+# LDATS
+
+```{r}
+
+suppressPackageStartupMessages(library(LDATS))
+
+# Math
+system.time(
+math_LDATS <- LDA_set(as.matrix(math_items_DTM),
+                      topics = 8,
+                      nseeds = 5)) # more seeds = more time, larger object
+# nseeds = 1
+#  user  system elapsed 
+# 49.50    0.56   50.11 
+
+# nseeds = 5
+#   user  system elapsed 
+# 267.03    1.39  270.75 
+
+# Object size is with 5 seeds; smaller with fewer seeds
+object.size(math_LDATS) # 16850232 bytes; ~16.9 MB
+save(math_LDATS, file = "math_LDATS.Rdata")
+
+# Essay
+system.time(
+essay_LDATS <- LDA_set(as.matrix(essay_DTM),
+                      topics = 14,
+                      nseeds = 5))
+# nseeds = 1
+#   user  system elapsed 
+# 391.98    0.88  395.82  
+
+# nseeds = 5
+#    user  system elapsed 
+# 2610.19    4.11 2639.20
+
+# Object size is with 5 seeds; smaller with fewer seeds
+object.size(essay_LDATS) # 48645112 bytes; ~48.6 MB
+save(essay_LDATS, file = "essay_LDATS.Rdata")
+
+essay_lda_select <- select_LDA(essay_LDATS)
+essay_lda_select[[1]]@k
+plot(essay_lda_select[[1]])
+
+
+
+
+selected_lda_model <- select_LDA(lda_model_set2)
+
+selected_lda_model[[1]]@k
+
+head(selected_lda_model[[1]]@gamma)
+
+plot(selected_lda_model[[1]])
+
+
+
+```
+
+# LDAvis
+
+```{r}
+
+suppressPackageStartupMessages(library(LDAvis))
+
+####LDAvis code
+##http://datacm.blogspot.com/2017/03/lda-visualization-with-r-topicmodels.html 
+#Convert the output of a topicmodels Latent Dirichlet Allocation to JSON for use with LDAvis
+##Need to use the LDA package or some other LDA creation **FIRST** then use this
+#List of parameters:
+#' @param fitted Output from a topicmodels \code{LDA} model.
+#' @param doc_term The document term matrix used in the \code{LDA}
+#' model. This should have been created with the tm package's
+#' \code{DocumentTermMatrix} function.
+#'
+#' @seealso \link{LDAvis}.
+#' @export
+#' 
+#' 
+
+# depends on having both the lda object and the document-term matrix
+
+
+make_ldavis <- function(lda_model, DTM){
+  
+  # Find required quantities
+  phi <- as.matrix(topicmodels::posterior(lda_model)$terms)
+  theta <- as.matrix(topicmodels::posterior(lda_model)$topics)
+  vocab <- colnames(phi)
+  term_freq <- slam::col_sums(DTM)
+  
+  # Convert to json
+  json_lda <- LDAvis::createJSON(phi = phi, theta = theta,
+                                 vocab = vocab,
+                                 doc.length = as.vector(table(DTM$i)),
+                                 term.frequency = term_freq)
+  
+  return(json_lda)
+}
+
+
+system.time(math_ldavis <- make_ldavis(math_lda, math_DTM))
+math_json_ldavis <- topicmodels_j
+
+
+
+system.time(essay_ldavis <- make_ldavis(essay_lda, essay_DTM))
+
+
+
+
+json_res <- topicmodels_json_ldavis(stems_lda, stems_dtm)
+
+serVis(json_res)
+
+```
+
+# lsa
+
+```{r, eval = FALSE}
+
+suppressPackageStartupMessages(library(lsa)) # Requires dtm 
+
+## Running the main analysis and saving those objects
+
+system.time(lsa_math_result <- lsa(math_items_DTM, 8))
+#    user  system elapsed 
+# 1584.80    1.18 1595.11 
+object.size(lsa_math_result) # 2092792 bytes; ~2.1 MB
+save(lsa_math_result, file = "lsa_math_result.Rdata")
+
+system.time(lsa_essay_result <- lsa(essay_DTM, 14))
+#   user  system elapsed 
+# 1544.13    2.17 1566.45 
+object.size(lsa_essay_result) # 4902360 bytes; ~4.9 MB
+save(lsa_essay_result, file = "lsa_essay_result.Rdata")
+
+
+
+####lsa code
+library(lsa)
+
+##convert the Document Term Matrix to the 'text matrix' format
+
+textmatrix <- as.textmatrix(stems_m)
+
+lsa1 <- lsa(textmatrix)
+
+```
+
+# LSAfun
+
+```{r}
+
+suppressPackageStartupMessages(library(LSAfun))
+
+# for use _after_ using the LSA package; from the manual:
+# This package is not designed to create LSA semantic spaces. 
+# In R, this functionality is provided by the package lsa.
+
+
+```
+
+# mallet
+
+```{r}
+
+suppressPackageStartupMessages(library(mallet))
+
+options(java.parameters = "-Xmx4g")
+# Necessary for using mallet; requires larger Java virtual machine
+
+dir(system.file("stoplists/", package = "mallet"))
+
+
+####Package Mallet####
+##Link to CRAN entry https://cran.r-project.org/web/packages/mallet/mallet.pdf 
+##Link to the github where the majority of code came from https://github.com/mimno/RMallet/blob/master/mallet/vignettes/mallet.Rmd 
+
+
+
+
+##Mallet comes with five different stop list files.
+
+dir(system.file("stoplists/", package = "mallet"))
+
+##stopwords_en <- system.file("stoplists/en.txt", package = "mallet")
+##this is in the folder labelled "en" you also need to download this and then 
+##change this directory to wherever you are working or it will not work
+##you can also sub in your own custom stop lists file here,
+##or just add to the list they give.
+
+getwd()
+stopwords_en <- "C:/Users/MBeitingParrish/Desktop/en.txt"
+
+##As a first step we need to create a LDA trainer object and supply the trainer with documents. We start out by creating a mallet instance list object. 
+
+##This function has a few extra options (whether to lowercase, how we define a token). See ```?mallet.import``` for details.
+
+
+instances <- 
+  mallet.import(id.array = row.names(items), 
+                text.array = items[["text"]], 
+                stoplist = stopwords_en,
+                token.regexp = "\\p{L}[\\p{L}\\p{P}]+\\p{L}")
+
+
+
+
+##If the data is already cleaned and we just want to use the index of `text.array` we can simply just supply the `text.array`.
+
+
+instances.short <- 
+  mallet.import(text.array = items[["text"]])
+
+
+##It is also possible to supply stop words as a character vector. 
+
+stop_vector <- readLines(stopwords_en)
+instances.short <- 
+  mallet.import(text.array = sotu[["text"]], 
+                stoplist = stop_vector)
+
+
+
+##To fit a model we first need to create a topic trainer object.
+
+start_time2 <- Sys.time()
+topic.model <- MalletLDA(num.topics=8, alpha.sum = 1, beta = 0.1)
+
+
+
+##Load our documents. We could also pass in the filename of a saved instance list file that we build from the command-line tools.
+
+
+
+topic.model$loadDocuments(instances)
+
+
+
+##Get the vocabulary, and some statistics about word frequencies. These may be useful in further curating the stopword list.
+
+
+vocabulary <- topic.model$getVocabulary()
+head(vocabulary)
+word.freqs <- mallet.word.freqs(topic.model)
+head(word.freqs)
+
+
+
+
+##Optimize hyperparameters (\code{alpha} and \code{beta}) every 20 iterations, after 50 burn-in iterations.
+
+
+topic.model$setAlphaOptimization(20, 50)
+
+
+##Now train a model. Note that hyperparameter optimization is on, by default. We can specify the number of iterations. Here we'll use a large-ish round number.
+
+
+topic.model$train(200)
+
+
+##We can also run through a few iterations where we pick the best topic for each token, rather than sampling from the posterior distribution.
+
+
+topic.model$maximize(10)
+
+end_time2 <- Sys.time()
+
+end_time2 - start_time2
+
+##Get the probability of topics in documents and the probability of words in topics. 
+##By default, these functions return raw word counts. Here we want probabilities, 
+##so we normalize, and add "smoothing" so that nothing has exactly 0 probability.
+
+
+doc.topics <- mallet.doc.topics(topic.model, smoothed=TRUE, normalized=TRUE)
+topic.words <- mallet.topic.words(topic.model, smoothed=TRUE, normalized=TRUE)
+
+View(doc.topics)
+View(topic.words)
+
+##What are the top words in topic 2? Notice that R indexes from 1 and Java from 0, so this will be the topic that mallet called topic 1.
+
+mallet.top.words(topic.model, word.weights = topic.words[2,], num.top.words = 5)
+
+
+##Show the first document with at least 5% tokens belonging to topic 2.
+
+
+items[["text"]][doc.topics[,2] > 0.05][1]
+
+
+
+## Save and load topic states
+
+##We can also store our current topic model state to use it for postprocessing. We can store the state file either as a txt file or a compressed gzip file.
+
+
+state_file <- file.path(tempdir(), "temp_mallet_state.gz")
+save.mallet.state(topic.model = topic.model, state.file = state_file)
+
+
+##We also store the topic counts per document and then remove the old model.
+
+
+doc.topics.counts <- mallet.doc.topics(topic.model, smoothed=FALSE, normalized=FALSE)
+rm(topic.model)
+
+
+##To initialize a model with the sampled topic indicators you need to create a new model, load the same data and then load the topic indicators. 
+##Note from authors: Unfortunately it is not possible to set the alpha parameter vector so it is not currently possible to initialize the model with the exact same alpha prior.
+
+
+new.topic.model <- MalletLDA(num.topics=10, alpha.sum = 1, beta = 0.1)
+new.topic.model$loadDocuments(sotu.instances)
+load.mallet.state(topic.model = new.topic.model, state.file = state_file)
+doc.topics.counts[1:3, 1:10]
+mallet.doc.topics(new.topic.model, smoothed=FALSE, normalized=FALSE)[1:3, 1:10]
+
+
+```
+
+# maptpx
+
+```{r}
+
+suppressPackageStartupMessages(library(maptpx))
+
+# depends on having a matrix of multinomial response counts in 
+# ncol(counts) phrases/categories for nrow(counts) documents/observations
+# can be either a siple matrix of a simple_triplet_matrix
+
+math_maptpx <- topics(SOMETHIGN,
+                      k = )
+
+```
+
+# Rlda
+
+```{r}
+
+suppressPackageStartupMessages(library(Rlda))
+
+```
+
+# seededlda
+
+```{r}
+
+suppressPackageStartupMessages(library(seededlda))
+
+####seededlda
+# library(seededlda)
+# library(quanteda)
+# library(tidytext)
+
+# Use of this package requires a dataframe of tokens
+math_token_df <- math_items %>%
+  tidytext::unnest_tokens(word, completeq)
+math_dfm <- quanteda::dfm(math_token_df$word)
+
+system.time(
+math_seededlda <- textmodel_lda(math_dfm, k = 8))
+object.size(math_seededlda)
+save(math_seededlda, file = "math_seededlda.Rdata")
+
+essay_token_df <- essays %>%
+  tidytext::unnest_tokens(word, essay)
+essay_dfm <- quanteda::dfm(essay_token_df$word)
+
+system.time(
+essay_seededlda <- textmodel_lda(essay_dfm, k = 14))
+object.size(essay_seededlda)
+save(essay_seededlda, file = "essay_seededlda.Rdata")
+
+
+
+
+terms(model2)
+topics(model2)
+
+```
+
+# stm
+
+```{r}
+
+suppressPackageStartupMessages(library(stm))
+
+```
+
+# stmCorrViz
+
+```{r}
+
+suppressPackageStartupMessages(library(stmCorrViz))
+
+```
+
+# stmgui
+
+```{r}
+
+suppressPackageStartupMessages(library(stmgui))
+
+```
+
+# stuminsights
+
+```{r}
+
+suppressPackageStartupMessages(library(stminsights))
+
+```
+
+# textmineR
+
+```{r}
+
+suppressPackageStartupMessages(library(textmineR))
+
+
+
+#####TextmineR
+
+##making the dtm
+
+dtm <- CreateDtm(doc_vec = items$completeq, # character vector of documents
+                 doc_names = items$id, # document names, optional
+                 ngram_window = c(1, 2), # minimum and maximum n-gram length
+                 stopword_vec = c(stopwords::stopwords("en"), # stopwords from tm
+                                  stopwords::stopwords(source = "smart")), # this is the default value
+                 lower = TRUE, # lowercase - this is the default value
+                 remove_punctuation = TRUE, # punctuation - this is the default
+                 remove_numbers = TRUE, # numbers - this is the default
+                 verbose = FALSE, # Turn off status bar for this demo
+                 cpus = 2) # by default, this will be the max number of cpus available
+
+
+tf_mat <- TermDocFreq(dtm = dtm)
+
+# Fit a Latent Dirichlet Allocation model
+# note the number of topics is arbitrary here
+# see extensions for more info
+
+set.seed(12345)
+
+model <- FitLdaModel(dtm = dtm, 
+                     k = 8,
+                     iterations = 200, # I usually recommend at least 500 iterations or more
+                     burnin = 180,
+                     alpha = 0.1,
+                     beta = 0.05,
+                     optimize_alpha = TRUE,
+                     calc_likelihood = TRUE,
+                     calc_coherence = TRUE,
+                     calc_r2 = TRUE,
+                     cpus = 2) 
+
+str(model)
+
+model$r2
+
+plot(model$log_likelihood, type = "l")
+
+summary(model$coherence)
+
+hist(model$coherence, 
+     col= "blue", 
+     main = "Histogram of probabilistic coherence")
+
+model$top_terms <- GetTopTerms(phi = model$phi, M = 5)
+head(model$top_terms)
+
+```
+
+# tidylda
+
+```{r}
+
+suppressPackageStartupMessages(library(tidylda))
+
+```
+
+# topicdoc
+
+```{r}
+
+suppressPackageStartupMessages(library(topicdoc))
+
+```
+
+# topicmodels
+
+```{r}
+
+suppressPackageStartupMessages(library(topicmodels))
+
+
+#####TopicModels Package#####
+##This is what we used for the original analyses###
+##Most of this original code comes from chapter 6 of the Silge and Robinson book
+##Link to CRAN entry https://cran.r-project.org/web/packages/topicmodels/topicmodels.pdf 
+##Link to CRAN Vignette Entry https://cran.r-project.org/web/packages/topicmodels/vignettes/topicmodels.pdf 
+
+
+
+
+##Basic code just to specify the model, change k for the number of topics
+start_time5 <- Sys.time()
+stems_lda <- LDA(stems_dtm, k = 9, control = list(seed = 1234))
+stems_lda
+
+
+end_time6 <- Sys.time()
+
+end_time6 - start_time5
+
+##Gives the probability of each wordr appearing in each topic for LDA 
+stems_topics <- tidy(stems_lda, matrix = "beta")
+stems_topics
+
+
+
+
+
+
+##Makes the most common 10 terms and gives a plot 
+stems_top_terms <- stems_topics %>% 
+  group_by(topic) %>%
+  top_n(15, beta) %>% 
+  ungroup () %>%
+  arrange(topic, -beta)
+
+stems_top_terms %>% 
+  mutate(term = reorder(term, beta)) %>%
+  ggplot(aes(term, beta, fill = factor(topic))) + 
+  geom_col(show.legend = FALSE) +
+  facet_wrap(~topic, scales = "free") + 
+  coord_flip()
+
+
+
+
+
+##Code for findings the greatest differences between two similar-seeming topics
+##This takes awhile to run, but usually works
+
+beta_spread <- stems_topics %>% 
+  mutate(topic = paste0("topic", topic)) %>%
+  spread(topic, beta) %>%
+  filter(topic1 > .001 | topic2 > .001) %>%
+  mutate(log_ratio = log2(topic2/topic1))
+
+beta_spread
+
+
+
+##Code for Document-Topic Probabilities
+
+stems_docfreq <- tidy(stems_lda, matrix = "gamma")
+stems_docfreq
+View(stems_docfreq)
+
+stems_topics2 <- stems_docfreq %>%
+  arrange(desc(gamma))
+
+
+
+##Code for Assignment of each word to each topic
+
+
+assignments <- augment(stems_lda, data = stems_dtm)
+
+assignments
+
+
+##This package also allows for CTM. Here is the code
+stems_ctm <- CTM(stems_dtm, 4, method = "VEM", control=list(seed=831))
+
+stems_ctm
+
+
+
+##Gives the probability of each word appearing in each topic for CTM
+ctm_topicfreq <- tidy(stems_ctm, matrix = "beta")
+ctm_topicfreq
+
+
+ctm_topics <- ctm_topicfreq %>%
+  arrange(desc(beta))
+
+ctm_topics
+
+
+
+##Construct the adjacency matrix for a topic graph after running a CTM
+##lambda has to be between 0 and 1 it seems but does not work well with 0
+
+ctm_matrix1 <- build_graph(stems_ctm, 0.5, and = TRUE)
+ctm_matrix1
+
+```
+
+# TopicScore
+
+```{r}
+
+suppressPackageStartupMessages(library(TopicScore))
+
+```
+
