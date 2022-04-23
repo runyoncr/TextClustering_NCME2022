@@ -10,6 +10,7 @@ output:
 urlcolor: blue
 ---
 
+The document provides the R syntax used to test packages for text clustering methods. Not all packages reviewed in the PowerPoint presentation are included in this document (yet); this document will be continually updated until all package documentation has been included.
 
 # Setup
 
@@ -37,6 +38,7 @@ install.packages(c("BTM", "BullsEyeR", "dplyr", "doc2vec",
 ```{r}
 
 math_items <- read.csv("textclustering_math_items.csv")
+save(math_items, file = "math_items.Rdata")
 head(math_items, 5)
 
 ```
@@ -49,12 +51,13 @@ essays <- read.csv("textclustering_essays.csv")
 head(essays, 5)
 # Removing the strings that start with the at sign
 essays$essay <- gsub("@\\w+ *", "", essays$essay)
+save(essays, file = "essays.Rdata")
 
 ```
 
 ## Preprocessing data
 
-Many of the packages require that the data be pre-process and formatted in to a <a href="https://en.wikipedia.org/wiki/Document-term_matrix" target="_blank">document-term matrix.</a>
+Many of the packages require that the data be pre-processed and formatted in to a <a href="https://en.wikipedia.org/wiki/Document-term_matrix" target="_blank">document-term matrix.</a> Not all of the packages that require you to use a document-term matrix have functions available to transform your text into the document-term matrix. Here we have chosen to use functions from the 'tm' package to pre-process the data and create the document-term matrix.
 
 ```{r, eval = FALSE}
 
@@ -95,6 +98,8 @@ load("math_items_DTM.Rdata")
 ```
 
 # ldatuning
+
+Prior to using many of the topic modeling packages, it is necessary to determine how many topics may be present in a given corpus. The 'ldatuning' package provides information on how many topics are present by providing several different metrics on the information in a corpus. We strongly recommend consulting the appropriate documentation so you may appropriately evaluate these metrics.
 
 ```{r, eval = FALSE}
 
@@ -284,7 +289,7 @@ rm(essay_doc2vec)
 
 # keyATM
 
-```{r}
+```{r, eval = FALSE}
 
 suppressPackageStartupMessages(library(keyATM))
 suppressPackageStartupMessages(library(quanteda))
@@ -293,13 +298,13 @@ suppressPackageStartupMessages(library(quanteda))
 # Will use bag-of-words from the qdap package to
 # identify common words just for demonstration
 
-# unusual for the math items; omitting from demonstration
+# unusual to use keywords for math items; omitting from demonstration
 
 suppressPackageStartupMessages(library(qdap))
 
-
 freq_terms(tm::removeWords(essays$essay, stopwords("english")))
-# more pre-processing would be beneficial
+# more pre-processing would be beneficial here, but good enough
+# for present purposes
 
 essay_keywords <- list(
   machine = c("computer", "computers"),
@@ -324,7 +329,7 @@ save(essay_keyATM, file = "essay_keyATM.Rdata")
 
 # lda
 
-```{r}
+```{r, eval = FALSE}
 
 suppressPackageStartupMessages(library(lda))
 
@@ -363,16 +368,9 @@ essay_lda <- lda.collapsed.gibbs.sampler(essay_lex$documents,
 object.size(essay_lda) # 7872808 bytes; ~7.9 MB
 save(essay_lda, file = "essay_lda.Rdata")
 
+```
 
-
-
-
-
-
-
-
-
-
+```{r, eval = FALSE, echo=FALSE}
 
 ## Get the top words in the cluster
 top.words <- top.topic.words(result$topics, 5, by.score=TRUE)
@@ -404,7 +402,7 @@ ggplot(topic.proportions.df, aes(x=topic, y=value, fill=document), ylab="proport
 
 # LDAShiny
 
-```{r}
+```{r, eval = FALSE}
 
 suppressPackageStartupMessages(library(LDAShiny))
 
@@ -414,7 +412,7 @@ suppressPackageStartupMessages(library(LDAShiny))
 
 # LDATS
 
-```{r}
+```{r, eval = FALSE}
 
 suppressPackageStartupMessages(library(LDATS))
 
@@ -452,12 +450,13 @@ essay_LDATS <- LDA_set(as.matrix(essay_DTM),
 object.size(essay_LDATS) # 48645112 bytes; ~48.6 MB
 save(essay_LDATS, file = "essay_LDATS.Rdata")
 
+```
+
+```{r, eval = FALSE, echo = FALSE}
+
 essay_lda_select <- select_LDA(essay_LDATS)
 essay_lda_select[[1]]@k
 plot(essay_lda_select[[1]])
-
-
-
 
 selected_lda_model <- select_LDA(lda_model_set2)
 
@@ -467,13 +466,12 @@ head(selected_lda_model[[1]]@gamma)
 
 plot(selected_lda_model[[1]])
 
-
-
 ```
 
-# LDAvis
 
-```{r}
+```{r, eval = FALSE, echo = FALSE}
+
+# LDAvis
 
 suppressPackageStartupMessages(library(LDAvis))
 
@@ -494,6 +492,8 @@ suppressPackageStartupMessages(library(LDAvis))
 
 # depends on having both the lda object and the document-term matrix
 
+load("math_items_DTM.Rdata")
+load("math_lda.Rdata")
 
 make_ldavis <- function(lda_model, DTM){
   
@@ -516,12 +516,7 @@ make_ldavis <- function(lda_model, DTM){
 system.time(math_ldavis <- make_ldavis(math_lda, math_DTM))
 math_json_ldavis <- topicmodels_j
 
-
-
 system.time(essay_ldavis <- make_ldavis(essay_lda, essay_DTM))
-
-
-
 
 json_res <- topicmodels_json_ldavis(stems_lda, stems_dtm)
 
@@ -549,7 +544,8 @@ system.time(lsa_essay_result <- lsa(essay_DTM, 14))
 object.size(lsa_essay_result) # 4902360 bytes; ~4.9 MB
 save(lsa_essay_result, file = "lsa_essay_result.Rdata")
 
-
+```
+```{r, eval=FALSE, echo=FALSE}
 
 ####lsa code
 library(lsa)
@@ -564,7 +560,7 @@ lsa1 <- lsa(textmatrix)
 
 # LSAfun
 
-```{r}
+```{r, eval = FALSE}
 
 suppressPackageStartupMessages(library(LSAfun))
 
@@ -575,9 +571,11 @@ suppressPackageStartupMessages(library(LSAfun))
 
 ```
 
-# mallet
 
-```{r}
+
+```{r, eval = FALSE, echo = FALSE}
+
+# mallet
 
 suppressPackageStartupMessages(library(mallet))
 
@@ -736,9 +734,11 @@ mallet.doc.topics(new.topic.model, smoothed=FALSE, normalized=FALSE)[1:3, 1:10]
 
 ```
 
-# maptpx
 
-```{r}
+
+```{r, eval = FALSE, echo = FALSE}
+
+# maptpx
 
 suppressPackageStartupMessages(library(maptpx))
 
@@ -751,9 +751,11 @@ math_maptpx <- topics(SOMETHIGN,
 
 ```
 
-# Rlda
 
-```{r}
+
+```{r, eval = FALSE, echo = FALSE}
+
+# Rlda
 
 suppressPackageStartupMessages(library(Rlda))
 
@@ -761,14 +763,9 @@ suppressPackageStartupMessages(library(Rlda))
 
 # seededlda
 
-```{r}
+```{r, eval = FALSE}
 
 suppressPackageStartupMessages(library(seededlda))
-
-####seededlda
-# library(seededlda)
-# library(quanteda)
-# library(tidytext)
 
 # Use of this package requires a dataframe of tokens
 math_token_df <- math_items %>%
@@ -777,7 +774,9 @@ math_dfm <- quanteda::dfm(math_token_df$word)
 
 system.time(
 math_seededlda <- textmodel_lda(math_dfm, k = 8))
-object.size(math_seededlda)
+  #  user  system elapsed 
+  # 58.72    0.06   59.10 
+object.size(math_seededlda) # 101271136 bytes; ~101.3 MB
 save(math_seededlda, file = "math_seededlda.Rdata")
 
 essay_token_df <- essays %>%
@@ -786,55 +785,176 @@ essay_dfm <- quanteda::dfm(essay_token_df$word)
 
 system.time(
 essay_seededlda <- textmodel_lda(essay_dfm, k = 14))
-object.size(essay_seededlda)
+ #   user  system elapsed 
+ # 367.33    0.20  368.36 
+object.size(essay_seededlda) # 398705656 bytes; ~398.7 MB
 save(essay_seededlda, file = "essay_seededlda.Rdata")
-
-
-
-
-terms(model2)
-topics(model2)
 
 ```
 
 # stm
 
-```{r}
+```{r, eval = FALSE, message = FALSE}
 
 suppressPackageStartupMessages(library(stm))
 
+# Requires pre-processing via internal (stm) function
+math_stm_processed <- textProcessor(math_items$completeq, 
+                                    metadata = math_items)
+save(math_stm_processed, file = "math_stm_processed.Rdata")
+
+essay_stm_processed <- textProcessor(essays$essay, 
+                                     metadata = essays)
+save(essay_stm_processed, file = "essay_stm_processed.Rdata")
+
+# Also requires internal document preparation
+math_prepped <- prepDocuments(math_stm_processed$documents,
+                              math_stm_processed$vocab,
+                              math_stm_processed$meta,
+                              lower.thresh = 5)
+# lower.thresh = Words which do not appear in a number of documents greater 
+# than lower.thresh will be dropped and both the documents and vocab files
+# will be renumbered accordingly. If this causes all words within a document 
+# to be dropped, a message will print to the screen at it will also return 
+# vector of the documents removed so you can update your meta data as well. 
+save(math_prepped, file = "math_prepped.Rdata")
+
+essay_prepped <- prepDocuments(essay_stm_processed$documents,
+                               essay_stm_processed$vocab,
+                               essay_stm_processed$meta,
+                               lower.thresh = 5)
+save(essay_prepped, file = "essay_prepped.Rdata")
+
+# Main function
+
+system.time(math_stm <- stm(math_prepped$documents, 
+                            math_prepped$vocab, 
+                            K = 8, 
+                            data = math_prepped$meta,
+                            seed = 4232022,
+                            max.em.its = 500))
+# Converged after 142 iterations
+#   user  system elapsed 
+# 238.76   74.99  317.04 
+object.size(math_stm) # 908368 bytes; ~0.9 MB
+
+save(math_stm, file = "math_stm.Rdata")
+
+
+system.time(essay_stm <- stm(essay_prepped$documents, 
+                             essay_prepped$vocab, 
+                             K = 14, 
+                             data = essay_prepped$meta,
+                             seed = 4232022,
+                             max.em.its = 500))
+# Converged after 50 iterations
+#   user  system elapsed 
+# 130.14   32.08  163.36 
+object.size(essay_stm) # 1540560 bytes; ~1.5 MB
+save(essay_stm, file = "essay_stm.Rdata")
+
+# functions for stmgui below
+math_stm_estimated <- estimateEffect(~ grade, math_stm, meta = math_prepped$meta)
+save(math_stm_estimated, file = "math_stm_estimated.Rdata")
+
+essay_stm_estimated <- estimateEffect(~ essay_set, essay_stm, meta = essay_prepped$meta)
+save(essay_stm_estimated, file = "essay_stm_estimated.Rdata")
+
 ```
+
+
+```{r, echo = FALSE, eval = FALSE}
 
 # stmCorrViz
 
-```{r}
 
 suppressPackageStartupMessages(library(stmCorrViz))
 
+# The function requires specifying an output, which must be an html file. 
+math_stmCorrViz_out <- "math_stm_corr_viz_html.html"
+
+system.time(stmCorrViz(
+  math_stm, 
+  math_stmCorrViz_out, 
+  math_items$completeq, 
+  math_items_DTM, 
+  title = "stmCorrViz Math Results",
+  search_options = list(range_min = 0.05, range_max = 5, step = 0.05)
+))
+
+# Inspecting valid thresholds via grid search. Progress:
+#   |======================================================================| 100%
+# Error in stmCorrViz(math_stm, math_stmCorrViz_out, math_items$completeq,  : 
+#   Grid search failed to find a valid threshold. Try different search parameters.
+# Timing stopped at: 1.96 0.91 3.63
+
+essay_stmCorrViz_out <- "essay_stm_corr_viz_html.html"
+
+system.time(stmCorrViz(
+  essay_stm, 
+  essay_stmCorrViz_out, 
+  essays$essay, 
+  essay_DTM, 
+  title = "stmCorrViz Essay Results",
+  search_options = list(range_min = 0.05, range_max = 5, step = 0.05)
+))
+
 ```
 
-# stmgui
 
-```{r}
+```{r, eval = FALSE, echo = FALSE}
+
+# stmgui
 
 suppressPackageStartupMessages(library(stmgui))
 
 ```
 
-# stuminsights
 
-```{r}
+```{r, echo = FALSE, eval = FALSE}
+
+# stminsights
+
+rm(list=ls())
+
+load("essays.Rdata")
+load("essay_stm_processed.Rdata")
+load("essay_prepped.Rdata")
+load("essay_stm.Rdata")
+load("essay_stm_estimated.Rdata")
+
+load("math_items.Rdata")
+load("math_stm_processed.Rdata")
+load("math_prepped.Rdata")
+load("math_stm.Rdata")
+load("math_stm_estimated.Rdata")
+
+save.image("stminsights_image.Rdata")
+
+rm(list=ls())
+
+load("stminsights_image.Rdata")
+
+```
+```{r, eval = FALSE, echo = FALSE}
 
 suppressPackageStartupMessages(library(stminsights))
 
+# Not run; this command opens up an R Shiny interface
+run_stminsights()
+
+```
+```{r, echo = FALSE, eval = FALSE}
+rm(list=ls())
 ```
 
-# textmineR
 
-```{r}
+
+```{r, eval = FALSE, echo = FALSE}
 
 suppressPackageStartupMessages(library(textmineR))
 
+# textmineR
 
 
 #####TextmineR
@@ -890,25 +1010,29 @@ head(model$top_terms)
 
 ```
 
-# tidylda
 
-```{r}
+```{r, eval = FALSE, echo = FALSE}
+
+# tidylda
 
 suppressPackageStartupMessages(library(tidylda))
 
 ```
 
-# topicdoc
 
-```{r}
+```{r, eval = FALSE, echo = FALSE}
+
+# topicdoc
 
 suppressPackageStartupMessages(library(topicdoc))
 
 ```
 
+
+```{r, eval = FALSE, echo=FALSE}
+
 # topicmodels
 
-```{r}
 
 suppressPackageStartupMessages(library(topicmodels))
 
@@ -1018,9 +1142,10 @@ ctm_matrix1
 
 ```
 
-# TopicScore
 
-```{r}
+```{r, eval = FALSE, echo = FALSE}
+
+# TopicScore
 
 suppressPackageStartupMessages(library(TopicScore))
 
